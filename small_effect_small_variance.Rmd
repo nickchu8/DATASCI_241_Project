@@ -1,0 +1,77 @@
+---
+title: "small_effect_small_variance"
+output: html_document
+---
+
+# Power Analysis for Small Effect, Small Variance
+
+```{r}
+set.seed(42)
+library(data.table)
+library(ggplot2)
+```
+
+```{r}
+# 1. set effect size and standard deviation
+effect_size <- 5
+sd <- 15
+baseline_mean <- 96
+alpha <- 0.05
+n_simulations <- 1000 
+
+samples <- seq(20, 500, by = 20)
+samples
+```
+
+```{r}
+# 2. construct power table
+power_df <- data.table(
+  total_sample_size = samples,
+  power = numeric(length(samples))
+)
+power_df
+```
+```{r}
+# run sim
+for (i in seq_along(samples)) {
+  
+  # Calculate group size for this iteration
+  n_group <- samples[i] / 2 
+  
+  # Simulate the p-values directly
+  sim_p_values <- replicate(n_simulations, {
+    # Generating rnorm directly avoids costly data.table subsetting
+    focus_internal <- rnorm(n_group, mean = baseline_mean, sd = sd)
+    focus_external <- rnorm(n_group, mean = baseline_mean + effect_size, sd = sd)
+    
+    # Run the test and extract the p-value
+    t.test(focus_external, focus_internal)$p.value
+  })
+  
+  # Calculate statistical power
+  current_power <- mean(sim_p_values < alpha)
+  
+  set(power_df, i, "power", current_power)
+}
+```
+
+```{r}
+# 4. Visualize the Results
+ggplot(power_df, aes(x = total_sample_size, y = power)) +
+  geom_hline(yintercept = 0.80, linetype = "dashed", color = "darkred", alpha = 0.7) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "midnightblue", size = 2) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
+  labs(
+    title = "Power Analysis: Internal vs. External Focus",
+    subtitle = sprintf("Effect Size = %d | SD = %d | Alpha = %.2f", effect_size, sd, alpha),
+    x = "Total Sample Size (Internal + External Groups)",
+    y = "Statistical Power",
+    caption = "Dashed red line indicates 80% power threshold"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
