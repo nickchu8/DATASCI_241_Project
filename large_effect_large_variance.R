@@ -14,10 +14,10 @@ df[ , ':='(
 )]
 
 df[ , focus_of_attention := sample(c('internal', 'external'), 
-                               size = .N, replace = TRUE)]
+                                   size = .N, replace = TRUE)]
 
-df[focus_of_attention == 'internal', Y := y0]
-df[focus_of_attention == 'external', Y := y0 + tau_external]
+df[focus_of_attention == 'internal', Y := rnorm(.N, mean = 96, sd = 45)]
+df[focus_of_attention == 'external', Y := rnorm(.N, mean = 111, sd = 45)]
 
 # df[ , .(group_mean = mean(Y)), keyby = .(focus_of_attention)]
 
@@ -53,9 +53,10 @@ for (i in seq_along(samples)){
 
 ggplot(data, aes(x = sample_size, y = power)) +
   geom_line() +
+  geom_hline(yintercept = 0.80, linetype = "dashed", color = "darkred", alpha = 0.7) +
   geom_point() +
   labs(
-    title = "Power vs. Sample Size",
+    title = "Power vs. Sample Size [Effect Size = 15, SD = 45]",
     x = "Total Sample Size (Treatment + Control)",
     y = "Power"
   )
