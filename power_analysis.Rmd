@@ -1,0 +1,303 @@
+---
+title: "Power Analysis"
+author: "Brent Arakaki, Curtis Chau, Nicholas Chu, Michael Soden"
+date: "6/15/2026"
+output: 
+  pdf_document: 
+    toc: true
+    number_sections: true
+---
+```{r global options, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE )
+
+```
+
+```{r package loads, warning=FALSE, message=FALSE}
+library(data.table)
+library(sandwich)
+library(lmtest)
+
+library(ggplot2)
+library(knitr)
+```
+
+# Justification of Assumed Effect Size
+A large amount of research in sports psychology shows that when a person focuses their mind during exercise, it completely changes how well their body performs. Generally, people focus in one of two ways:
+Internal Focus: You focus entirely on what your body is doing on the inside, like thinking about squeezing your core or flexing a specific muscle group.
+External Focus: You focus on the environment around you or the outside goal of the movement, like focusing on keeping your back perfectly flat like a table.
+A classic study by Marchant (2009) proved exactly how this works using a basic arm exercise. They found that when people focused on an outside cue rather than their own muscles, they actually produced more physical strength while their muscles did less unnecessary work. This proves that taking your mind off the muscle itself helps your nervous system run much more smoothly and efficiently.
+When you apply this to exercises where you have to hold a position until your body gives out, that efficiency stops you from getting tired so quickly. A massive review of the research by Jo, Miller, and Carter (2023) confirmed that focusing on the outside environment consistently leads to better physical results. Additionally, a recent 2026 study by Daou and colleagues looked directly at wall-sits, confirming that an external focus helps you stay in the hold longer by making the exercise feel less exhausting and taking your mind off the intense muscle burn
+To build on this published research, our project plan incorporates professional knowledge and direct subject feedback to further justify our effect sizes:
+Professional Knowledge: We are building this study around real-world fitness environments. Experienced personal trainers frequently observe that simply switching a person's focus from their muscles to their environment ('like drive your feet into the floor') can instantly add time to a tough exercise hold. We are actively partnering with local gyms and personal trainers to run this experiment with their clients to see this professional knowledge in action.
+Subject Feedback: To make sure our cues actually work, we are building a feedback check directly into the study. After participants finish their wall-sit, they will fill out a short survey explicitly stating how closely they followed our audio instructions. This will let us verify firsthand if people who successfully ignored the muscle burn and stuck to the external cue lasted longer than those who defaulted back to thinking about their aching muscles.
+
+
+# Scenario 1 (Small Effect, Small Variance)
+```{r scenario_nick, include=TRUE}
+set.seed(42)
+library(data.table)
+library(ggplot2)
+
+# 1. set effect size and standard deviation
+effect_size <- 5
+sd <- 15
+baseline_mean <- 96
+alpha <- 0.05
+n_simulations <- 1000 
+
+samples <- seq(20, 500, by = 20)
+
+# 2. construct power table
+power_df <- data.table(
+  total_sample_size = samples,
+  power = numeric(length(samples))
+)
+
+# run sim
+for (i in seq_along(samples)) {
+  
+  # Calculate group size for this iteration
+  n_group <- samples[i] / 2 
+  
+  # Simulate the p-values directly
+  sim_p_values <- replicate(n_simulations, {
+    focus_internal <- rnorm(n_group, mean = baseline_mean, sd = sd)
+    focus_external <- rnorm(n_group, mean = baseline_mean + effect_size, sd = sd)
+    
+    # Run the test and extract the p-value
+    t.test(focus_external, focus_internal)$p.value
+  })
+  
+  # Calculate statistical power
+  current_power <- mean(sim_p_values < alpha)
+  
+  set(power_df, i, "power", current_power)
+}
+
+# 4. Visualize the Results
+ggplot(power_df, aes(x = total_sample_size, y = power)) +
+  geom_hline(yintercept = 0.80, linetype = "dashed", color = "darkred", alpha = 0.7) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "midnightblue", size = 2) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
+  labs(
+    title = "Power Analysis: Small Effect, Small Variance",
+    subtitle = sprintf("Effect Size = %d | SD = %d | Alpha = %.2f", effect_size, sd, alpha),
+    x = "Total Sample Size (Internal + External Groups)",
+    y = "Statistical Power",
+    caption = "Dashed red line indicates 80% power threshold"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+power_data_nick <- power_df
+
+```
+# Scenario: Small Effect, Small Variance 
+
+Notes:
+
+Because there may not be a substantial difference in wall sit time between the two cue groups. An example of evidence could be if fitness enthusiasts on the internet frequently say that mind-muscle connection isn’t that important.
+
+# Scenario 2 (Large Effect, Large Variance)
+
+```{r scenario_brent, include=TRUE}
+library(data.table)
+library(ggplot2)
+
+set.seed(1234)
+
+# start off by making a data frame with control and treatment data
+# columns: focus_of_attention, 
+
+df <- data.table(id = 1:300)
+
+df[ , ':='(
+  y0 = rnorm(.N, mean = 96, sd = 45),
+  tau_external = rnorm(.N, mean = 15)
+)]
+
+df[ , focus_of_attention := sample(c('internal', 'external'), 
+                                   size = .N, replace = TRUE)]
+
+df[focus_of_attention == 'internal', Y := rnorm(.N, mean = 96, sd = 45)]
+df[focus_of_attention == 'external', Y := rnorm(.N, mean = 111, sd = 45)]
+
+# df[ , .(group_mean = mean(Y)), keyby = .(focus_of_attention)]
+
+samples <- seq(20, 500, by = 20)
+
+length_original <- length(df$Y)
+
+data <- data.frame(
+  sample_size = numeric(length(samples)),
+  power = numeric(length(samples))
+)
+
+for (i in seq_along(samples)){
+  group_size <- (samples[i] / 2) 
+  data$sample_size[i] <- group_size * 2
+  
+  sim_p_values <- replicate(1000, {
+    sample_treat   <- sample(df[df$focus_of_attention == 'external']$Y, 
+                             size = group_size, 
+                             replace = TRUE)
+    sample_control <- sample(df[df$focus_of_attention == 'internal']$Y, 
+                             size = group_size, 
+                             replace = TRUE)
+    
+    t_test_sim <- t.test(sample_treat, sample_control)
+    
+    return(t_test_sim$p.value)
+  })
+  
+  data$power[i] <- mean(sim_p_values < 0.05)
+  
+}
+
+ggplot(data, aes(x = sample_size, y = power)) +
+  geom_line() +
+  geom_hline(yintercept = 0.80, linetype = "dashed", color = "darkred", alpha = 0.7) +
+  geom_point() +
+  labs(
+    title = "Power vs. Sample Size [Effect Size = 15, SD = 45]",
+    x = "Total Sample Size (Treatment + Control)",
+    y = "Power"
+  )
+
+power_data_brent <- data
+
+```
+# Scenario: Large Effect, Large Variance
+Notes:
+Evidence: According to Daou (2026), external focus patients had an average time that was 9 seconds longer than that of those with internal focus. For this scenario, we will use a larger effect size of 15 seconds.
+
+
+# Scenario 3 (Small Effect, Large Variance)
+
+```{r scenario_curtis, include=TRUE}
+library(ggplot2)
+
+set.seed(123)
+
+# Small effect size, large variance scenario
+effect_size <- 5
+control_mean <- 60
+sd_wall_sit <- 45
+
+num_simulations <- 1000
+sample_sizes <- seq(20, 500, by = 20)
+
+power_estimates <- rep(NA, length(sample_sizes))
+
+for(i in seq_along(sample_sizes)) {
+  
+  n_total <- sample_sizes[i]
+  n_treat <- round(n_total / 2)
+  n_control <- n_total - n_treat
+  
+  p_values <- replicate(
+    num_simulations,
+    {
+      treatment_group <- rnorm(
+        n_treat,
+        mean = control_mean + effect_size,
+        sd = sd_wall_sit
+      )
+      
+      control_group <- rnorm(
+        n_control,
+        mean = control_mean,
+        sd = sd_wall_sit
+      )
+      
+      sample_data <- data.frame(
+        wall_sit_time = c(treatment_group, control_group),
+        external_focus = c(rep(1, n_treat), rep(0, n_control))
+      )
+      
+      t.test(
+        wall_sit_time ~ external_focus,
+        data = sample_data
+      )$p.value
+    }
+  )
+  
+  power_estimates[i] <- mean(p_values < 0.05)
+}
+
+power_df <- data.frame(
+  sample_size = sample_sizes,
+  power = power_estimates
+)
+
+power_df
+
+ggplot(power_df, aes(x = sample_size, y = power)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 0.80, linetype = "dashed") +
+  labs(
+    title = "Power Analysis: Small Effect Size and Large Variance",
+    x = "Sample Size",
+    y = "Power"
+  )
+power_data_curtis <- power_df
+```
+# Scenario: Small Effect, Large Variance (Curtis)
+Notes:
+Evidence: We base our assumptions on prior research showing that external-focus cues improve muscular endurance compared to internal-focus cues. Grgic (2021) reported a moderate positive effect of external focus on muscular endurance, while Daou (2026) found longer wall-sit times under external-focus instructions. Because our study is conducted remotely and includes participants with varying fitness levels, we use a conservative scenario with a small treatment effect (5 seconds) and large variance (SD = 45 seconds) to account for increased noise and variability.
+
+# Combined Power Curve
+
+```{r power_plot, include=TRUE, fig.width=7, fig.height=4.5}
+
+combined_power_data <- rbind(
+  data.frame(
+    SampleSize = power_data_nick$total_sample_size, 
+    Power      = power_data_nick$power, 
+    Scenario   = "Small Effect, Small Variance"
+  ),
+  data.frame(
+    SampleSize = power_data_brent$sample_size, 
+    Power      = power_data_brent$power, 
+    Scenario   = "Large Effect, Large Variance"
+  ),
+  data.frame(
+    SampleSize = power_data_curtis$sample_size, 
+    Power      = power_data_curtis$power, 
+    Scenario   = "Small Effect, Large Variance"
+  )
+)
+
+# Generate the plot
+ggplot(combined_power_data, aes(x = SampleSize, y = Power, color = Scenario, linetype = Scenario)) +
+  geom_line(linewidth = 1) +
+  geom_hline(yintercept = 0.80, linetype = "dashed", color = "darkred", alpha = 0.7) +
+  labs(
+    title = "Statistical Power Curves by Experimental Scenario",
+    x = "Total Sample Size (N)",
+    y = "Achieved Power",
+    color = "Scenario Strategy",
+    linetype = "Scenario Strategy"
+  ) +
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical",
+    plot.title = element_text(face = "bold", size = 12)
+  )
+```
+# References:
+Marchant, D. C., Greig, M., & Scott, C. (2009). Attentional focusing instructions influence force production and muscular activity during isokinetic elbow flexions. The Journal of Strength & Conditioning Research, 23(8), 2358–2366. https://doi.org/10.1519/JSC.0b013e3181b8d1e5
+National Center for Biotechnology Information. (n.d.). PubMed Central. U.S. National Library of Medicine. https://www.ncbi.nlm.nih.gov/pmc/
+Grgic, J., & Mikulic, P. (2022). Effects of attentional focus on muscular endurance: A meta-analysis. International Journal of Environmental Research and Public Health, 19(1), Article 89. https://doi.org/10.3390/ijerph19010089
+Daou, M., Gannon, E. E., Winepol, M. M., Coville, A. A., Simpson, B. B., Rotarius, T., Guilkey, J., & Martel, G. (2026). The positive impacts of external focus of attention on performance, fatigue, and affect on a fatiguing task. Frontiers in Psychology, 17, Article 1753471. https://doi.org/10.3389/fpsyg.2026.1753471
+
+```
+  
+  
